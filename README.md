@@ -1,36 +1,54 @@
-# MFT Email Responder — AI Powered
+# 📧 MFT Support Email Responder
 
-An AI-powered email response system built for enterprise MFT/EDI workflows. 
-Uses RAG (Retrieval Augmented Generation) to draft contextual replies 
-based on 30 real-world MFT support email scenarios.
+An AI-powered email reply generator for MFT/EDI support teams, built using RAG (Retrieval-Augmented Generation) with LLaMA 3.3 and Groq.
 
-## What it does
-- Takes incoming customer/partner email query as input
-- Searches 30 past MFT/EDI email replies for similar scenarios
-- Drafts a professional contextual reply automatically using LLaMA 3.3 70B
+## 🚀 Demo
 
-## Tech Stack
-- Python
-- Groq API (LLaMA 3.3 70B)
-- RAG pattern for context-aware responses
-- python-dotenv for secure API key management
+Paste any MFT/EDI support email query and get a professional draft reply instantly — powered by a knowledge base of 30 past support emails.
 
-## Files
-- `email_responder.py` — original simple version
-- `test_gemini.py` — full RAG version with 30 sample emails
-- `sample_emails.py` — 30 MFT/EDI support email scenarios
+## 🛠️ Tech Stack
 
-## Setup
-1. Clone this repository
-2. Install dependencies: `pip install groq python-dotenv`
-3. Create `.env` file and add: `GROQ_API_KEY=your_key_here`
-4. Run: `python test_gemini.py`
+- **LLaMA 3.3 70B** — LLM for generating replies
+- **Groq API** — Ultra-fast inference
+- **RAG** — Past emails used as context for accurate, domain-specific replies
+- **Streamlit** — Web UI
+- **Python** — Core logic
 
-## Use Case
-Built for enterprise B2B integration teams handling MFT/EDI support 
-queries from trading partners. POC for cloud mailbox automation.
+## 📋 Features
 
-## Author
-Aditya Kumar Gupta  
-AI Automation Engineer | MFT | EDI | B2B Integration  
-[LinkedIn](https://linkedin.com/in/aditya-kumar-gupta-332453197)
+- 30 past MFT/EDI support emails loaded as knowledge base
+- Generates professional, context-aware draft replies
+- Clean Streamlit UI with sidebar knowledge base viewer
+- Copy-ready output text area
+
+## ⚙️ Setup
+
+1. Clone the repo
+```bash
+   git clone https://github.com/adii1401/mft-email-responder.git
+   cd mft-email-responder
+```
+
+2. Install dependencies
+```bash
+   pip install -r requirements.txt
+```
+
+3. Create a `.env` file
+```
+   GROQ_API_KEY=your_groq_api_key_here
+```
+
+4. Run the app
+```bash
+   streamlit run app.py
+```
+
+## 💡 Use Case
+
+MFT/EDI support teams handle repetitive email queries daily. This tool uses past resolved tickets as context to draft accurate replies — reducing response time significantly.
+
+## 👤 Author
+
+**Aditya Kumar Gupta**  
+[LinkedIn](https://linkedin.com/in/your-profile) | [GitHub](https://github.com/adii1401)
