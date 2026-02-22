@@ -1,30 +1,34 @@
-# mft-email-responder
-RAG-based AI email responder for MFT/EDI enterprise workflows using Groq LLM and Python
 # MFT Email Responder — AI Powered
 
 An AI-powered email response system built for enterprise MFT/EDI workflows. 
 Uses RAG (Retrieval Augmented Generation) to draft contextual replies 
-based on past email history.
+based on 30 real-world MFT support email scenarios.
 
 ## What it does
-- Takes incoming customer/partner email as input
-- Searches past email replies for similar queries
-- Drafts a professional contextual reply automatically using LLM
+- Takes incoming customer/partner email query as input
+- Searches 30 past MFT/EDI email replies for similar scenarios
+- Drafts a professional contextual reply automatically using LLaMA 3.3 70B
 
 ## Tech Stack
 - Python
 - Groq API (LLaMA 3.3 70B)
 - RAG pattern for context-aware responses
+- python-dotenv for secure API key management
 
-## Use Case
-Built for enterprise B2B integration teams handling repetitive 
-MFT/EDI support queries from trading partners.
+## Files
+- `email_responder.py` — original simple version
+- `test_gemini.py` — full RAG version with 30 sample emails
+- `sample_emails.py` — 30 MFT/EDI support email scenarios
 
 ## Setup
 1. Clone this repository
-2. Install dependencies: `pip install groq`
-3. Add your Groq API key
-4. Run: `python email_responder.py`
+2. Install dependencies: `pip install groq python-dotenv`
+3. Create `.env` file and add: `GROQ_API_KEY=your_key_here`
+4. Run: `python test_gemini.py`
+
+## Use Case
+Built for enterprise B2B integration teams handling MFT/EDI support 
+queries from trading partners. POC for cloud mailbox automation.
 
 ## Author
 Aditya Kumar Gupta  
