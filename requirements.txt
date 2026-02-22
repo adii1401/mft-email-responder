@@ -1,3 +1,6 @@
 groq
 streamlit
 python-dotenv
+openpyxl
+python-docx
+pdfplumber
