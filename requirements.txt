@@ -1,6 +1,8 @@
-groq
 streamlit
+groq
 python-dotenv
-openpyxl
-python-docx
 pdfplumber
+python-docx
+openpyxl
+chromadb
+onnxruntime
