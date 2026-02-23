@@ -4,14 +4,31 @@ from groq import Groq
 from sample_emails import past_emails
 from dotenv import load_dotenv
 
-# Doc readers
 import openpyxl
 from docx import Document
 import pdfplumber
+import chromadb
+from chromadb.utils import embedding_functions
 
 load_dotenv()
 
+# ← ADD THIS HERE (must be first Streamlit command)
+st.set_page_config(page_title="MFT Email Responder", page_icon="📧", layout="wide")
+
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+
+# ─── Simple Pure-Python Embedding Function (no torch/onnx needed) ──
+@st.cache_resource
+def setup_chromadb():
+    chroma_client = chromadb.Client()
+    ef = embedding_functions.DefaultEmbeddingFunction()
+    collection = chroma_client.get_or_create_collection(
+        name="mft_docs",
+        embedding_function=ef
+    )
+    return chroma_client, collection, ef
+
+chroma_client, collection, embedding_model = setup_chromadb()
 
 # ─── Load past emails as context ───────────────────────────────
 email_context = "\n\n".join([
@@ -19,7 +36,7 @@ email_context = "\n\n".join([
     for e in past_emails
 ])
 
-# ─── Load docs from docs/ folder ───────────────────────────────
+# ─── Doc readers ────────────────────────────────────────────────
 def read_txt(path):
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
@@ -48,38 +65,88 @@ def read_pdf(path):
                 text.append(t)
     return "\n".join(text)
 
-def load_all_docs(folder="docs"):
-    docs_text = []
+# ─── Chunking ───────────────────────────────────────────────────
+def chunk_text(text, chunk_size=500, overlap=50):
+    words = text.split()
+    chunks = []
+    i = 0
+    while i < len(words):
+        chunk = " ".join(words[i:i+chunk_size])
+        chunks.append(chunk)
+        i += chunk_size - overlap
+    return chunks
+
+# ─── Load docs into ChromaDB ────────────────────────────────────
+def load_docs_into_chromadb(folder="docs"):
     if not os.path.exists(folder):
-        return ""
+        return 0
+
+    existing = collection.get()
+    if existing["ids"]:
+        collection.delete(ids=existing["ids"])
+
+    all_chunks = []
+    all_ids = []
+    all_metadata = []
+
+    chunk_id = 0
     for filename in os.listdir(folder):
         path = os.path.join(folder, filename)
         try:
             if filename.endswith(".txt"):
-                docs_text.append(f"[{filename}]\n{read_txt(path)}")
+                text = read_txt(path)
             elif filename.endswith(".docx"):
-                docs_text.append(f"[{filename}]\n{read_docx(path)}")
+                text = read_docx(path)
             elif filename.endswith(".xlsx"):
-                docs_text.append(f"[{filename}]\n{read_xlsx(path)}")
+                text = read_xlsx(path)
             elif filename.endswith(".pdf"):
-                docs_text.append(f"[{filename}]\n{read_pdf(path)}")
-        except Exception as e:
-            docs_text.append(f"[{filename}] Error reading: {e}")
-    return "\n\n".join(docs_text)
+                text = read_pdf(path)
+            else:
+                continue
 
-docs_context = load_all_docs("docs")
+            chunks = chunk_text(text)
+            for chunk in chunks:
+                if chunk.strip():
+                    all_chunks.append(chunk)
+                    all_ids.append(f"chunk_{chunk_id}")
+                    all_metadata.append({"source": filename})
+                    chunk_id += 1
+
+        except Exception as e:
+            st.warning(f"Error reading {filename}: {e}")
+
+    if all_chunks:
+        collection.add(
+            documents=all_chunks,
+            ids=all_ids,
+            metadatas=all_metadata
+        )
+
+    return len(all_chunks)
+
+# ─── Semantic search ────────────────────────────────────────────
+def search_docs(query, top_k=5):
+    results = collection.query(
+        query_texts=[query],
+        n_results=top_k
+    )
+    chunks = results["documents"][0]
+    sources = [m["source"] for m in results["metadatas"][0]]
+    return chunks, sources
+
+# ─── Load docs on startup ───────────────────────────────────────
+total_chunks = load_docs_into_chromadb("docs")
 
 # ─── Streamlit UI ───────────────────────────────────────────────
-st.set_page_config(page_title="MFT Email Responder", page_icon="📧", layout="wide")
-
 st.title("📧 MFT Support Email Responder")
 st.markdown("AI-powered draft replies for MFT/EDI support emails using RAG + LLaMA 3.3")
 
 with st.sidebar:
     st.header("📂 Knowledge Base")
     st.markdown(f"**{len(past_emails)} past emails** loaded")
+    st.markdown(f"**{total_chunks} chunks** indexed in ChromaDB 🧠")
     with st.expander("📄 Docs loaded"):
-        if docs_context:
+        if os.path.exists("docs") and os.listdir("docs"):
             for f in os.listdir("docs"):
                 st.markdown(f"✅ {f}")
         else:
@@ -95,6 +162,13 @@ new_email = st.text_area("Paste the incoming email here:", height=150,
 
 if st.button("Generate Reply ✨", type="primary"):
     if new_email.strip():
+        with st.spinner("Searching knowledge base..."):
+            relevant_chunks, sources = search_docs(new_email)
+            docs_context = "\n\n".join([
+                f"[Source: {src}]\n{chunk}"
+                for chunk, src in zip(relevant_chunks, sources)
+            ])
+
         with st.spinner("Generating draft reply..."):
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
@@ -103,7 +177,7 @@ if st.button("Generate Reply ✨", type="primary"):
 PAST SUPPORT EMAILS:
 {email_context}
 
-MFT DOCUMENTATION (rules, TP details, approval matrix):
+RELEVANT MFT DOCUMENTATION (semantically matched to this query):
 {docs_context}
 
 Now draft a professional reply to this new email:
@@ -116,5 +190,11 @@ Important: Follow approval rules strictly. If password reset is requested, menti
         st.subheader("📝 Draft Reply")
         st.markdown(reply)
         st.text_area("Copy from here:", value=reply, height=200)
+
+        with st.expander("🔍 Retrieved context (what ChromaDB found)"):
+            for chunk, src in zip(relevant_chunks, sources):
+                st.markdown(f"**Source: {src}**")
+                st.markdown(chunk)
+                st.divider()
     else:
         st.warning("Please enter an email query first.")
