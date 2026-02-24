@@ -12,15 +12,14 @@ from chromadb.utils import embedding_functions
 
 load_dotenv()
 
-# ← ADD THIS HERE (must be first Streamlit command)
 st.set_page_config(page_title="MFT Email Responder", page_icon="📧", layout="wide")
 
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-# ─── Simple Pure-Python Embedding Function (no torch/onnx needed) ──
+# ─── ChromaDB Setup (Persistent) ────────────────────────────────
 @st.cache_resource
 def setup_chromadb():
-    chroma_client = chromadb.Client()
+    chroma_client = chromadb.PersistentClient(path="./chroma_db")
     ef = embedding_functions.DefaultEmbeddingFunction()
     collection = chroma_client.get_or_create_collection(
         name="mft_docs",
@@ -30,7 +29,7 @@ def setup_chromadb():
 
 chroma_client, collection, embedding_model = setup_chromadb()
 
-# ─── Load past emails as context ───────────────────────────────
+# ─── Load past emails as context ────────────────────────────────
 email_context = "\n\n".join([
     f"Query: {e['query']}\nReply: {e['reply']}"
     for e in past_emails
@@ -65,7 +64,7 @@ def read_pdf(path):
                 text.append(t)
     return "\n".join(text)
 
-# ─── Chunking ───────────────────────────────────────────────────
+# ─── Chunking ────────────────────────────────────────────────────
 def chunk_text(text, chunk_size=500, overlap=50):
     words = text.split()
     chunks = []
@@ -76,14 +75,14 @@ def chunk_text(text, chunk_size=500, overlap=50):
         i += chunk_size - overlap
     return chunks
 
-# ─── Load docs into ChromaDB ────────────────────────────────────
-def load_docs_into_chromadb(folder="docs"):
+# ─── Load docs into ChromaDB ─────────────────────────────────────
+def load_docs_into_chromadb(collection, folder="docs"):
     if not os.path.exists(folder):
-        return 0
+        return collection.count()
 
     existing = collection.get()
     if existing["ids"]:
-        collection.delete(ids=existing["ids"])
+        return len(existing["ids"])  # Already loaded — skip re-ingestion
 
     all_chunks = []
     all_ids = []
@@ -124,8 +123,8 @@ def load_docs_into_chromadb(folder="docs"):
 
     return len(all_chunks)
 
-# ─── Semantic search ────────────────────────────────────────────
-def search_docs(query, top_k=5):
+# ─── Semantic search ─────────────────────────────────────────────
+def search_docs(collection, query, top_k=5):
     results = collection.query(
         query_texts=[query],
         n_results=top_k
@@ -134,10 +133,10 @@ def search_docs(query, top_k=5):
     sources = [m["source"] for m in results["metadatas"][0]]
     return chunks, sources
 
-# ─── Load docs on startup ───────────────────────────────────────
-total_chunks = load_docs_into_chromadb("docs")
+# ─── Load docs on startup ────────────────────────────────────────
+total_chunks = load_docs_into_chromadb(collection, "docs")
 
-# ─── Streamlit UI ───────────────────────────────────────────────
+# ─── Streamlit UI ────────────────────────────────────────────────
 st.title("📧 MFT Support Email Responder")
 st.markdown("AI-powered draft replies for MFT/EDI support emails using RAG + LLaMA 3.3")
 
@@ -163,7 +162,7 @@ new_email = st.text_area("Paste the incoming email here:", height=150,
 if st.button("Generate Reply ✨", type="primary"):
     if new_email.strip():
         with st.spinner("Searching knowledge base..."):
-            relevant_chunks, sources = search_docs(new_email)
+            relevant_chunks, sources = search_docs(collection, new_email)
             docs_context = "\n\n".join([
                 f"[Source: {src}]\n{chunk}"
                 for chunk, src in zip(relevant_chunks, sources)
