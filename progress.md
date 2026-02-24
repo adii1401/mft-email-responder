@@ -7,7 +7,7 @@
 
 ## Project: MFT Support Email Responder
 - GitHub: github.com/adii1401/mft-email-responder
-- Live: [your streamlit URL]
+- Live: https://mft-email-responder-gzxs4yes6ut8dvdruafyue.streamlit.app/
 - Stack: Python, Groq, LLaMA 3.3, Streamlit, ChromaDB, all-MiniLM-L6-v2, RAG
 
 ## What's Built
@@ -22,6 +22,11 @@
 - Top-K semantic retrieval (only relevant chunks sent to LLM) ✅
 - Retrieved context viewer (debug expander in UI) ✅
 - Secrets management (.env excluded, Streamlit secrets used) ✅
+- Persistent ChromaDB via PersistentClient (survives restarts) ✅
+- 30 past emails indexed in ChromaDB as searchable vectors ✅
+- Emails + docs retrieved together via unified semantic search ✅
+- Pinned dependencies (chromadb==1.5.1, Python 3.13 compatible) ✅
+- RAG verified end-to-end on Streamlit Cloud ✅
 
 ## Day Log
 | Day | What was done |
@@ -29,12 +34,14 @@
 | Day 1 | Project setup, Groq + LLaMA integration, basic UI |
 | Day 2 | RAG with past emails, doc readers (PDF/DOCX/XLSX/TXT), deployed |
 | Day 3 | ChromaDB integration, semantic chunking, all-MiniLM-L6-v2 embeddings, redeployed |
+| Day 4 | Switched to PersistentClient, fixed collection scoping bugs, skip-if-loaded logic, stable cold starts |
+| Day 5 | 30 emails loaded into ChromaDB as vectors, unified semantic search across emails + docs, pinned dependencies, verified on Streamlit Cloud |
 
 ## Next Steps
 - [ ] Microsoft Graph API (Outlook integration — auto-read emails)
 - [ ] BIS REST API integration (fetch transfer status automatically)
 - [ ] Follow-up email tracker
-- [ ] Persistent ChromaDB (disk-based, survives restarts)
+- [ ] Confidence score — show similarity score of retrieved context
 
 ## Long Term Vision
 Auto-read emails from Outlook → fetch BIS status → 
