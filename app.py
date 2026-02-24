@@ -29,12 +29,6 @@ def setup_chromadb():
 
 chroma_client, collection, embedding_model = setup_chromadb()
 
-# ─── Load past emails as context ────────────────────────────────
-email_context = "\n\n".join([
-    f"Query: {e['query']}\nReply: {e['reply']}"
-    for e in past_emails
-])
-
 # ─── Doc readers ────────────────────────────────────────────────
 def read_txt(path):
     with open(path, "r", encoding="utf-8") as f:
@@ -75,14 +69,39 @@ def chunk_text(text, chunk_size=500, overlap=50):
         i += chunk_size - overlap
     return chunks
 
+# ─── Load past emails into ChromaDB ─────────────────────────────
+def load_emails_into_chromadb(collection):
+    # Check if emails already loaded
+    existing = collection.get(where={"type": "email"})
+    if existing["ids"]:
+        return len(existing["ids"])
+
+    documents = []
+    ids = []
+    metadatas = []
+
+    for i, email in enumerate(past_emails):
+        text = f"Query: {email['query']}\nReply: {email['reply']}"
+        documents.append(text)
+        ids.append(f"email_{i}")
+        metadatas.append({"type": "email", "source": "past_emails"})
+
+    collection.add(
+        documents=documents,
+        ids=ids,
+        metadatas=metadatas
+    )
+    return len(documents)
+
 # ─── Load docs into ChromaDB ─────────────────────────────────────
 def load_docs_into_chromadb(collection, folder="docs"):
     if not os.path.exists(folder):
-        return collection.count()
+        return 0
 
-    existing = collection.get()
+    # Check if docs already loaded
+    existing = collection.get(where={"type": "doc"})
     if existing["ids"]:
-        return len(existing["ids"])  # Already loaded — skip re-ingestion
+        return len(existing["ids"])
 
     all_chunks = []
     all_ids = []
@@ -108,7 +127,7 @@ def load_docs_into_chromadb(collection, folder="docs"):
                 if chunk.strip():
                     all_chunks.append(chunk)
                     all_ids.append(f"chunk_{chunk_id}")
-                    all_metadata.append({"source": filename})
+                    all_metadata.append({"type": "doc", "source": filename})
                     chunk_id += 1
 
         except Exception as e:
@@ -123,18 +142,21 @@ def load_docs_into_chromadb(collection, folder="docs"):
 
     return len(all_chunks)
 
-# ─── Semantic search ─────────────────────────────────────────────
+# ─── Semantic search (emails + docs combined) ────────────────────
 def search_docs(collection, query, top_k=5):
     results = collection.query(
         query_texts=[query],
         n_results=top_k
     )
     chunks = results["documents"][0]
-    sources = [m["source"] for m in results["metadatas"][0]]
-    return chunks, sources
+    metadatas = results["metadatas"][0]
+    sources = [m["source"] for m in metadatas]
+    types = [m["type"] for m in metadatas]
+    return chunks, sources, types
 
-# ─── Load docs on startup ────────────────────────────────────────
-total_chunks = load_docs_into_chromadb(collection, "docs")
+# ─── Load data on startup ────────────────────────────────────────
+total_emails = load_emails_into_chromadb(collection)
+total_doc_chunks = load_docs_into_chromadb(collection, "docs")
 
 # ─── Streamlit UI ────────────────────────────────────────────────
 st.title("📧 MFT Support Email Responder")
@@ -142,8 +164,8 @@ st.markdown("AI-powered draft replies for MFT/EDI support emails using RAG + LLa
 
 with st.sidebar:
     st.header("📂 Knowledge Base")
-    st.markdown(f"**{len(past_emails)} past emails** loaded")
-    st.markdown(f"**{total_chunks} chunks** indexed in ChromaDB 🧠")
+    st.markdown(f"**{len(past_emails)} past emails** indexed in ChromaDB 🧠")
+    st.markdown(f"**{total_doc_chunks} doc chunks** indexed in ChromaDB 🧠")
     with st.expander("📄 Docs loaded"):
         if os.path.exists("docs") and os.listdir("docs"):
             for f in os.listdir("docs"):
@@ -162,22 +184,19 @@ new_email = st.text_area("Paste the incoming email here:", height=150,
 if st.button("Generate Reply ✨", type="primary"):
     if new_email.strip():
         with st.spinner("Searching knowledge base..."):
-            relevant_chunks, sources = search_docs(collection, new_email)
-            docs_context = "\n\n".join([
-                f"[Source: {src}]\n{chunk}"
-                for chunk, src in zip(relevant_chunks, sources)
+            relevant_chunks, sources, types = search_docs(collection, new_email)
+            retrieved_context = "\n\n".join([
+                f"[{t.upper()} | Source: {src}]\n{chunk}"
+                for chunk, src, t in zip(relevant_chunks, sources, types)
             ])
 
         with st.spinner("Generating draft reply..."):
             response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
-                messages=[{"role": "user", "content": f"""You are an MFT/EDI support assistant. Use the following knowledge base to draft a professional reply.
+                messages=[{"role": "user", "content": f"""You are an MFT/EDI support assistant. Use the following retrieved knowledge base context to draft a professional reply.
 
-PAST SUPPORT EMAILS:
-{email_context}
-
-RELEVANT MFT DOCUMENTATION (semantically matched to this query):
-{docs_context}
+RETRIEVED CONTEXT (semantically matched to this query):
+{retrieved_context}
 
 Now draft a professional reply to this new email:
 {new_email}
@@ -191,8 +210,8 @@ Important: Follow approval rules strictly. If password reset is requested, menti
         st.text_area("Copy from here:", value=reply, height=200)
 
         with st.expander("🔍 Retrieved context (what ChromaDB found)"):
-            for chunk, src in zip(relevant_chunks, sources):
-                st.markdown(f"**Source: {src}**")
+            for chunk, src, t in zip(relevant_chunks, sources, types):
+                st.markdown(f"**[{t.upper()}] Source: {src}**")
                 st.markdown(chunk)
                 st.divider()
     else:
