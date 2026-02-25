@@ -71,26 +71,18 @@ def chunk_text(text, chunk_size=500, overlap=50):
 
 # ─── Load past emails into ChromaDB ─────────────────────────────
 def load_emails_into_chromadb(collection):
-    # Check if emails already loaded
     existing = collection.get(where={"type": "email"})
     if existing["ids"]:
         return len(existing["ids"])
 
-    documents = []
-    ids = []
-    metadatas = []
-
+    documents, ids, metadatas = [], [], []
     for i, email in enumerate(past_emails):
         text = f"Query: {email['query']}\nReply: {email['reply']}"
         documents.append(text)
         ids.append(f"email_{i}")
         metadatas.append({"type": "email", "source": "past_emails"})
 
-    collection.add(
-        documents=documents,
-        ids=ids,
-        metadatas=metadatas
-    )
+    collection.add(documents=documents, ids=ids, metadatas=metadatas)
     return len(documents)
 
 # ─── Load docs into ChromaDB ─────────────────────────────────────
@@ -98,15 +90,11 @@ def load_docs_into_chromadb(collection, folder="docs"):
     if not os.path.exists(folder):
         return 0
 
-    # Check if docs already loaded
     existing = collection.get(where={"type": "doc"})
     if existing["ids"]:
         return len(existing["ids"])
 
-    all_chunks = []
-    all_ids = []
-    all_metadata = []
-
+    all_chunks, all_ids, all_metadata = [], [], []
     chunk_id = 0
     for filename in os.listdir(folder):
         path = os.path.join(folder, filename)
@@ -134,25 +122,38 @@ def load_docs_into_chromadb(collection, folder="docs"):
             st.warning(f"Error reading {filename}: {e}")
 
     if all_chunks:
-        collection.add(
-            documents=all_chunks,
-            ids=all_ids,
-            metadatas=all_metadata
-        )
+        collection.add(documents=all_chunks, ids=all_ids, metadatas=all_metadata)
 
     return len(all_chunks)
 
-# ─── Semantic search (emails + docs combined) ────────────────────
+# ─── Distance to Confidence % ────────────────────────────────────
+def distance_to_confidence(distance):
+    # ChromaDB L2 distance: 0 = identical, ~2 = completely different
+    confidence = max(0.0, 1.0 - (distance / 2.0)) * 100
+    return round(confidence, 1)
+
+def confidence_badge(score):
+    if score >= 70:
+        return f"🟢 {score}% match"
+    elif score >= 40:
+        return f"🟡 {score}% match"
+    else:
+        return f"🔴 {score}% match"
+
+# ─── Semantic search (emails + docs + confidence) ────────────────
 def search_docs(collection, query, top_k=5):
     results = collection.query(
         query_texts=[query],
-        n_results=top_k
+        n_results=top_k,
+        include=["documents", "metadatas", "distances"]
     )
     chunks = results["documents"][0]
     metadatas = results["metadatas"][0]
+    distances = results["distances"][0]
     sources = [m["source"] for m in metadatas]
     types = [m["type"] for m in metadatas]
-    return chunks, sources, types
+    confidences = [distance_to_confidence(d) for d in distances]
+    return chunks, sources, types, confidences
 
 # ─── Load data on startup ────────────────────────────────────────
 total_emails = load_emails_into_chromadb(collection)
@@ -184,11 +185,19 @@ new_email = st.text_area("Paste the incoming email here:", height=150,
 if st.button("Generate Reply ✨", type="primary"):
     if new_email.strip():
         with st.spinner("Searching knowledge base..."):
-            relevant_chunks, sources, types = search_docs(collection, new_email)
+            relevant_chunks, sources, types, confidences = search_docs(collection, new_email)
             retrieved_context = "\n\n".join([
-                f"[{t.upper()} | Source: {src}]\n{chunk}"
-                for chunk, src, t in zip(relevant_chunks, sources, types)
+                f"[{t.upper()} | Source: {src} | Confidence: {conf}%]\n{chunk}"
+                for chunk, src, t, conf in zip(relevant_chunks, sources, types, confidences)
             ])
+
+        # ─── Low confidence warning ──────────────────────────────
+        top_confidence = confidences[0] if confidences else 0
+        if top_confidence < 40:
+            st.warning(
+                f"⚠️ Low confidence match ({top_confidence}%) — no strong match found in knowledge base. "
+                "Reply may be generic. Consider adding more relevant past emails or docs."
+            )
 
         with st.spinner("Generating draft reply..."):
             response = client.chat.completions.create(
@@ -210,8 +219,9 @@ Important: Follow approval rules strictly. If password reset is requested, menti
         st.text_area("Copy from here:", value=reply, height=200)
 
         with st.expander("🔍 Retrieved context (what ChromaDB found)"):
-            for chunk, src, t in zip(relevant_chunks, sources, types):
-                st.markdown(f"**[{t.upper()}] Source: {src}**")
+            for chunk, src, t, conf in zip(relevant_chunks, sources, types, confidences):
+                badge = confidence_badge(conf)
+                st.markdown(f"**[{t.upper()}] Source: {src}** — {badge}")
                 st.markdown(chunk)
                 st.divider()
     else:
