@@ -21,7 +21,7 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 # ─── Azure / Graph API Config ────────────────────────────────────
 CLIENT_ID = os.environ.get("AZURE_CLIENT_ID")
 TENANT_ID = os.environ.get("AZURE_TENANT_ID")
-SCOPES = ["Mail.Read", "Mail.Send", "User.Read"]
+SCOPES = ["Mail.ReadWrite", "Mail.Send", "User.Read"]
 GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0"
 
 # ─── ChromaDB Setup ──────────────────────────────────────────────
@@ -232,18 +232,52 @@ def fetch_unread_emails(access_token, max_emails=5):
 def send_reply(access_token, email_id, reply_text, to_address, subject):
     headers = {
         "Authorization": f"Bearer {access_token}",
-        "contentType": "HTML",
-        "content": reply_text.replace("\n", "<br>")
+        "Content-Type": "application/json"
     }
-    url = f"{GRAPH_ENDPOINT}/me/messages/{email_id}/reply"
-    body = {
-        "comment": reply_text
-    }
-    response = requests.post(url, headers=headers, json=body)
-    if response.status_code != 202:
-        st.write(f"Debug — Status: {response.status_code}, Response: {response.text}")
-    return response.status_code == 202
 
+    # Extract CC email from reply text if present
+    cc_recipients = []
+    for line in reply_text.split("\n"):
+        if line.strip().lower().startswith("cc:"):
+            import re
+            emails_found = re.findall(r'[\w\.-]+@[\w\.-]+\.\w+', line)
+            for em in emails_found:
+                cc_recipients.append({"emailAddress": {"address": em}})
+
+    url = f"{GRAPH_ENDPOINT}/me/messages/{email_id}/reply"
+    body = {"comment": reply_text}
+
+    # If CC found, use createReply + send instead
+    if cc_recipients:
+        # Step 1: Create a draft reply
+        create_url = f"{GRAPH_ENDPOINT}/me/messages/{email_id}/createReply"
+        draft_resp = requests.post(create_url, headers=headers)
+        if draft_resp.status_code != 201:
+            st.write(f"Draft error: {draft_resp.status_code} {draft_resp.text}")
+            return False
+
+        draft_id = draft_resp.json().get("id")
+
+        # Step 2: Update draft with body + CC
+        update_url = f"{GRAPH_ENDPOINT}/me/messages/{draft_id}"
+        update_body = {
+            "body": {
+                "contentType": "HTML",
+                "content": reply_text.replace("\n", "<br>")
+            },
+            "ccRecipients": cc_recipients
+        }
+        requests.patch(update_url, headers=headers, json=update_body)
+
+        # Step 3: Send the draft
+        send_url = f"{GRAPH_ENDPOINT}/me/messages/{draft_id}/send"
+        send_resp = requests.post(send_url, headers=headers)
+        return send_resp.status_code == 202
+    else:
+        response = requests.post(url, headers=headers, json=body)
+        if response.status_code != 202:
+            st.write(f"Debug — Status: {response.status_code}, Response: {response.text}")
+        return response.status_code == 202
 def mark_as_read(access_token, email_id):
     headers = {
         "Authorization": f"Bearer {access_token}",
@@ -251,7 +285,7 @@ def mark_as_read(access_token, email_id):
     }
     url = f"{GRAPH_ENDPOINT}/me/messages/{email_id}"
     requests.patch(url, headers=headers, json={"isRead": True})
-
+    
 # ─── Load data on startup ────────────────────────────────────────
 total_emails = load_emails_into_chromadb(collection)
 total_doc_chunks = load_docs_into_chromadb(collection, "docs")
@@ -325,8 +359,11 @@ with tab1:
                 received = email.get("receivedDateTime", "")[:10]
 
                 with st.expander(f"📩 {subject} — from {sender} ({received})"):
+                    body_content = email.get("body", {}).get("content", preview)
+                    body_clean_preview = re.sub(r'<[^>]+>', ' ', body_content).strip()[:300]
                     st.markdown(f"**From:** {sender}")
-                    st.markdown(f"**Preview:** {preview}")
+                    st.markdown(f"**Preview:** {body_clean_preview if body_clean_preview else '_(no preview available)_'}")
+                    
                     st.divider()
 
                     # ─── Check if already sent ───────────────────
