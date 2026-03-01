@@ -122,4 +122,4 @@ MFT/EDI support teams handle repetitive email queries daily — connection failu
 
 **Aditya Kumar Gupta**  
 MFT/EDI Engineer → AI Automation Engineer  
-[LinkedIn](https://linkedin.com/in/your-profile) | [GitHub](https://github.com/adii1401)
+[LinkedIn](https://www.linkedin.com/in/aditya-kumar-gupta-332453197/) | [GitHub](https://github.com/adii1401)
