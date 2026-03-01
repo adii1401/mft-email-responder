@@ -285,6 +285,40 @@ def mark_as_read(access_token, email_id):
     }
     url = f"{GRAPH_ENDPOINT}/me/messages/{email_id}"
     requests.patch(url, headers=headers, json={"isRead": True})
+
+# ─── Log follow-up to tracker ────────────────────────────────────
+def log_followup(subject, sender, reply_summary, priority="P3 - Non-critical"):
+    import sqlite3
+    from datetime import datetime, timedelta
+    SLA_HOURS = {
+        "P1 - Production Down": 2,
+        "P2 - Degraded Service": 4,
+        "P3 - Non-critical": 24,
+        "P4 - General Query": 48
+    }
+    os.makedirs("data", exist_ok=True)
+    deadline = datetime.now() + timedelta(hours=SLA_HOURS[priority])
+    conn = sqlite3.connect("./data/followups.db")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS followups (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject TEXT, sender TEXT, sent_at TEXT,
+            reply_summary TEXT, priority TEXT,
+            deadline TEXT, status TEXT DEFAULT 'Pending', notes TEXT DEFAULT ''
+        )
+    """)
+    conn.execute("""
+        INSERT INTO followups (subject, sender, sent_at, reply_summary, priority, deadline, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'Pending')
+    """, (
+        subject, sender,
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
+        reply_summary[:200],
+        priority,
+        deadline.strftime("%Y-%m-%d %H:%M")
+    ))
+    conn.commit()
+    conn.close()
     
 # ─── Load data on startup ────────────────────────────────────────
 total_emails = load_emails_into_chromadb(collection)
@@ -420,6 +454,12 @@ with tab1:
                                         )
                                         if success:
                                             mark_as_read(access_token, email_id)
+                                            log_followup(
+                                                data["subject"],
+                                                data["sender"],
+                                                edited_reply[:200],
+                                                "P3 - Non-critical"
+                                            )
                                             st.session_state[sent_key] = True
                                             del st.session_state[reply_key]
                                             st.success("✅ Reply sent and email marked as read!")
