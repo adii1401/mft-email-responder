@@ -21,8 +21,9 @@ flowchart TD
     I -->|Extract CC from reply| J[Auto-detect Job Owner]
     J -->|Mail.Send via Graph API| K[📤 Send Reply + CC JO]
     K --> L[✅ Mark Email as Read]
+    L --> M[📋 Log to Follow-up Tracker]
 
-    M[📄 Manual Input] --> D
+    N[📄 Manual Input] --> D
 ```
 
 ## 🛠️ Tech Stack
@@ -34,7 +35,8 @@ flowchart TD
 | Embeddings | all-MiniLM-L6-v2 |
 | RAG | Custom retrieval pipeline |
 | Email Integration | Microsoft Graph API + MSAL OAuth |
-| UI | Streamlit |
+| Follow-up Tracking | SQLite + SQL Console |
+| UI | Streamlit (multipage) |
 | Language | Python 3.13 |
 
 ## 📋 Features
@@ -49,6 +51,8 @@ flowchart TD
 - **Auto CC extraction** — detects Job Owner from TP master list and CC's automatically
 - **Human-in-the-loop** — review and edit reply before sending
 - **One-click send** via Graph API with automatic mark-as-read
+- **Follow-up tracker** — SLA deadlines, status management, overdue alerts
+- **SQL console** — run raw queries against the follow-ups database
 - **Manual input mode** — paste any email and generate reply instantly
 - **Retrieved context viewer** — see exactly what the AI used to generate the reply
 
@@ -96,6 +100,7 @@ MFT/EDI support teams handle repetitive email queries daily — connection failu
 3. Generates accurate, policy-compliant draft replies using LLaMA 3.3
 4. Identifies the responsible Job Owner from the TP master list
 5. Sends the reply with automatic CC to the Job Owner — all with one click
+6. Logs every sent reply to a follow-up tracker with SLA deadlines
 
 **Result:** Support engineers spend seconds reviewing AI-drafted replies instead of minutes writing from scratch.
 
@@ -110,8 +115,8 @@ MFT/EDI support teams handle repetitive email queries daily — connection failu
 - [x] OAuth device flow authentication (MSAL)
 - [x] Auto CC extraction + Job Owner identification
 - [x] Human-in-the-loop review before sending
-- [ ] Follow-up email tracker
-- [ ] Production folder structure refactor
+- [x] Follow-up tracker with SLA deadlines + SQL console
+- [x] Multipage Streamlit app
 
 ## 👤 Author
 
